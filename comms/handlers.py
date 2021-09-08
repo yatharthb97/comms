@@ -54,7 +54,7 @@ def receive_with_time_print(Receiver):
 			serialarray_str = s_string_clean.split(Receiver.Sep) #Split into the array
 			
 			s_string_clean += Receiver.Add_after_trim
-			Receiver.File.write(f"{receive_time: .2f}\t{s_string_clean}")
+			Receiver.File.write(f"{receive_time: .2f}{Receiver.Sep}{s_string_clean}")
 
 			new_data = [float(numeric_string) for numeric_string in serialarray_str]
 			new_aux_data = [x for x in itertools.islice(event_tag, len(new_data))]
