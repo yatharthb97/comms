@@ -4,73 +4,82 @@
 # Assumes a 3-wire null modem serial communication standard.
 
 import serial.tools.list_ports as port_list
-from serial import Serial
-from serial import SerialException
+from serial import Serial, SerialException
 from collections import deque 
-
-
-import matplotlib.pyplot as plt
-
 import time
 import os
 import tempfile
 import numpy as np
 
-from update_enums import UpdateStatus
+from enums import UpdateStatus, Tag
 from Counter import udcounter
 
 from pyqtgraph.Qt import QtGui, QtCore
 import pyqtgraph as pg
 
-def list_all_ports():
+
+def ListAllPorts():
     '''List all available ports on the machine.'''
     
     allports = list(port_list.comports())
     print("Listing all available ports:\n")
     for port in allports:
         print(port)
-
+    print('\n')
 
 
 class Receiver:
-
 	'''Receiver is an object that is associated with a serial port and can receive a stream of data and split it with a seperator (Sep) arguement. The contents of the communication channel will be stored within the receiver object and can be retrived from that object.The object initalizes a blank serial port. The initalization and opening is performed by the Receiver::open() method.'''
+	
+	__ids_ = -1 #Class Member
+
+	@classmethod
+	def _new_id(cls):
+		''' Private: ID generator function.''' 
+		cls.__ids_ = cls.__ids_ + 1
+		return cls.__ids_
+
 
 	def __init__(self, Unique_Name, Comport, Baudrate = 19200, Sep = ' '):
 		'''Constructor that requires a minimum of a Name and COMPORT address.'''
-		
-		sefl.ID = self._new_id()
-		self.Name = Unique_Name.replace(' ','_') #Clean-up
+
+		self.ID = Receiver._new_id()
+		self.Name = Unique_Name.replace(' ', '_').replace('-', '_') #Clean-up
+
 		self.Com = Comport
 		self.Baud = Baudrate
 		
 		self.Sep = Sep
-		self.trim_end = '\r\n'
-		self.add_after_trim = '\n'
+		self.Trim_right = '\r\n'
+		self.Add_after_trim = '\n'
 
-		self.InitTime = time.time_ns()
 		self.Port = Serial()
+		self.tag = Tag.none
 
+		#Setup Event Counter
 		self.EventCounter = udcounter.UD_Counter()
 		self.EventCounter.verbose = False
 		self.EventCounter.set_up_counter(0)
 		self.EventCounter.verbose = True
 
 		
-		self.ReceiveCalls = 0 #Number of Attempted Read
+		self.ReceiveCalls = 0 #Number of Attempted Reads
 		self.DecodeErrors = 0 #Number of Decoding Errors
 		
 		self.EventsList = [] #List of events read by the Receiver object per acquisition cycle
-		self.DecodeFailureList = [] #List of binary dumps of all decode failures
+		self.DecodeFailureList = [] #List of dumps of all decode failures
 
-		self.graph_updater = self.blank_fn
-
+	
 		# Graphing Resource Setup 
 		self.MaxGraphSize = 20
-		self.Data = deque(range(self.MaxGraphSize), maxlen = self.MaxGraphSize)
-		self.Xaxis = deque([0] * self.MaxGraphSize)
+		self.Axis = 0
+		self.UpdateStatus = UpdateStatus.NoUpdate
+		self.Graph_active = False
 
-
+		#Data Fields
+		self.Data = deque([0]*self.MaxGraphSize, maxlen = self.MaxGraphSize)
+		self.AuxData = deque(range(self.MaxGraphSize), maxlen = self.MaxGraphSize)
+		self.fixed_aux_data = []
 
 		# self.Help = f''' 
 		# 	> Resource List: 
@@ -83,24 +92,22 @@ class Receiver:
 
 
 		#Set a temporary file - Append mode, Line buffered
+
 		self.Tempfile = tempfile.TemporaryFile(mode='a', buffering = 1, suffix = ".dat", prefix=f"SerialData_R{self.ID}__")
-		#Initalize the default file object to the Tempfile object.
-		self.File = self.Tempfile 
+		self.File = self.Tempfile #File is set to TempFile during init 
 
 
 		#Print Info
 		print(f" • Receiver R{self.ID} → {self.Name} Created.")
-		print(f"   • Temporary Filename → {self.File.name}")
+		print(f"   ↪ Temporary Filename → {self.File.name}")
 
+		self.InitTime = time.time_ns() #Start Clock
 
-	def _new_id():
-		''' Private: ID generator function.'''
-		i = 0
-		i  i + 1
-		yield i 
+	def restart_clock():
+		self.InitTime = time.time_ns()
 
 	def open(self):
-		''' Open communication channel with the set COMPORT and baud rate. Also updates the Init_time. '''
+		''' Open communication channel with the set COMPORT and Baud rate. Also restarts the clock. '''
 
 		try:
 			if self.Baud == None:
@@ -109,12 +116,12 @@ class Receiver:
 				self.Port = Serial(port = self.Com, timeout = None, baudrate = self.Baud, xonxoff=False, rtscts=False, dsrdtr=False)
 
 			if self.Port.is_open:
-				print(f" • R{self.ID} Receiver - {self.Name} | Port - {self.Com}, {self.Port.name} → PORT OPEN.")
+				print(f" • R{self.ID} Receiver - {self.Name} | [{self.Com} - {self.Port.name}] → PORT OPEN.")
 
 		except SerialException:
-			print(f" •ERROR R{self.ID} > Receiver - {self.Name} | Port - {self.Com} → Unable to open port.")
+			print(f" •ERROR R{self.ID} > Receiver - {self.Name} | {self.Com} → Unable to open port.")
 
-		self.InitTime = time.time_ns() #Reset Init_time
+		self.restart_clock() #Reset Init_time
 
 
 	def is_open(self):
@@ -148,12 +155,68 @@ class Receiver:
 				print(f"•ERROR R{self.ID} > Invalid filepath!  Writing to Temp-File → ** {self.File.name} **")
 
 
+	def set_event_tag(self, mode = "event_cntr", xtics = []):
+		if mode == "time":
+			self.tag = Tag.time
+		elif mode == "event_cntr":
+			self.tag = Tag.event_cntr
+		elif mode == "vec_id" or mode == "range":
+			self.tag = Tag.range 
+		elif mode ==  "custom":
+			self.tag = Tag.custom
+			if not xtics == []:
+				self.fixed_aux_data = xtics
+				self.MaxGraphSize = len(xtics)
+			else:
+				print(f" • ERROR R{self.ID} > Custom tagging requires additional arguement - xtics.")
+		elif mode == "none":
+			self.tag = Tag.none
+		else:
+			return
+			#raise Exception("Invalid `mode` passed to set_event_tag(mode, xtics).")
+
+
+	def NewEventTag(self):
+		'''  Generates new Event Tag instance. '''
+		if self.tag == Tag.time :
+			def time_tag():
+				time_now = time.time_ns() - self.InitTime
+				while True:
+					yield time_now
+			return time_tag
+
+		elif self.tag == Tag.event_cntr :
+			def event_cntr_tag():
+				val = self.EventCounter.val()
+				yield val
+			return event_cntr_tag
+
+		elif self.tag == Tag.range:
+			def range_tag():
+				i = 0
+				while True:
+					yield i
+					i = i + 1
+			return range_tag
+		
+		elif self.tag ==  Tag.custom:
+			def custom_tag():
+				for i in self.fixed_aux_data:
+					yield i
+		elif self.tag == Tag.none:
+			def none_tag():
+				while True:
+					yield 0
+			return none_tag
+
+
 	def status(self, filename = None):
 		'''Prints a preety summary of the port and writes the same to a file if a valid filename is passed.'''
 
+		ID = self.ID
 		error_view_size =  5 * (self.DecodeErrors >= 5) + (self.DecodeErrors)*(self.DecodeErrors < 5)
 		
-		text = (f'''  R{self.ID} - {self.Name}
+		text = (f'''  R{self.ID} - {self.Name} - {self.Com}
                    • Open -> [{self.Port.is_open}]
        _,--()      • Filename:       {self.File.name}
   ( )-'-.------|>  • Temp Filename:  {self.Tempfile}
@@ -161,7 +224,7 @@ class Receiver:
                    • EventCounter:   {self.EventCounter.val()}           
       P O R T      • Total Read Trys:{self.ReceiveCalls} (Total Polling Events)
     S T A T U S    • Successful Read Events: {sum(self.EventsList)}
-                   • Exceptions: {self.DecodeErrors} Events - {self.DecodeFailureList[:error_view_size]}...
+      [R{ID}]      • Exceptions: {self.DecodeErrors} Events - {self.DecodeFailureList[:error_view_size]}...
                 ''')
 		
 		print(text) #Print on terminal
@@ -176,72 +239,6 @@ class Receiver:
 				fileout.close()
 				return
 		
-#Graphing section [INCOMPLETE]
-
- 
-	
-	# def set_graph_canvas(self):
-	# 	'''Sets the graph axes, title and other settings.'''
-	# 	self.ax.set_xlabel('Index → ')
-	# 	self.ax.set_ylabel('Value → ')
-	# 	self.ax.set_title(f"`{self.Name}` Receiver - Data Graph")
 
 
-	# def graph_update(self, receive_fn, delay_ms = 0,  no_of_calls = 1):
-	# 	''' Calls the function and updates the graph object. '''
-
-	# 	iterations_left = no_of_calls
-		
-	# 	while(iterations_left > 0):
-	# 		updates = receive_fn() #Call function
-			
-	# 		#---------
-	# 		if(updates == True):
-	# 			self.ax.clear()
-	# 			set_graph_canvas()
-	# 			self.ax.plot(np.arange(0, len(self.Data)), self.Data)
-	# 			plt.draw()
-	# 			#---------
-
-	# 		iterations_left = iterations_left - 1
-
-
-	# def open_graph(self):
-	# 	''' [INCOMPLETE] This method opens a gui window that updates in real time as new data is received. '''
-	# 	self.fig = plt.figure()
-	# 	self.ax = self.fig.add_subplot(111)
-	# 	self.set_graph_canvas()
-	# 	plt.ion() #Enable automatic redrawing
-	# 	plt.show(block=False) #open graph
-	# 	self.ax.plot(np.arange(0, len(self.Data)), self.Data)
-
-
-	def open_graph(self):
-	    self.app = QtGui.QApplication([])
-	    self.plot = pg.plot(title=self.Name)
-	    size=(1000,600)
-	    self.plot.resize(*size)
-
-	    self.plot.showGrid(x=True, y=True)
-	    self.plot.setLabel('left', 'Value', '#')
-	    self.plot.setLabel('bottom', 'time', 'us')
-	    self.curve = self.plot.plot(self.Xaxis, self.Data, pen=(255,0,0))
-
-	    self.graph_updater = self.update_plot
-	    self.app.exec_()
-
-
-	def update_plot(self, update_id):
-	   	if update_id == UpdateStatus.GraphUpdate:
-	   		self.curve.setData(self.Xaxis, self.Data)
-	   		self.app.processEvents()
-	   	else:
-	   		pass
-
-	def blank_fn(self, update_id):
-		pass
-
-	def update(self):
-	   	self.curve.setData(self.Xaxis, self.Data)
-	   	self.app.processEvents()
 

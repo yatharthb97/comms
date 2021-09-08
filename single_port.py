@@ -2,16 +2,17 @@
 # Sample script for reading a single port using Receiver class.
 #Author - Yatharth Bhasin (github → yatharthb97)
 
-from receiver import Receiver, ListPorts
-from acquisition_fns import Events_Acq, Time_Acq
-from receive_handlers import *
+
+from comms.receiver import Receiver, ListAllPorts
+from comms.acquisition import Events_Acq, Time_Acq
+from comms.handlers import *
+
 
 #List All Ports
-#ListPorts()
+ListAllPorts()
 
 #Initalise ports
-ports_x = [Receiver("Teensy Output", "COM8", Baudrate = 4608000, Sep = ',')]
-#ports = Receiver("Teensy Output", "COM8", Baudrate = 115200, Sep = ',')
+ports_x = [Receiver("Teensy Output", "COM8", Baudrate = None, Sep = ',')]
 
-ports_x[0].open_graph()
-ports_x = Events_Acq("Tesevents_live14", ports_x, receive_and_append, 1000)
+
+#ports_x = Sampling_Acq("Teensyevents_liv63", ports_x, 100, receive_with_time_print)

@@ -3,12 +3,12 @@
 #Author - Yatharth Bhasin (github → yatharthb97)
 
 
-from receiver import Receiver, ListPorts
-from acquisition_fns import Events_Acq, Time_Acq
-from receive_handlers import *
+from comms.receiver import Receiver, ListAllPorts
+from comms.acquisition import Events_Acq, Time_Acq
+from comms.handlers import *
 
 #List All Ports
-ListPorts()
+ListAllPorts()
 
 #Initalise ports
 ports = [Receiver("Port 1", "COM8", Baudrate = 115200, Sep = ','),
