@@ -6,7 +6,7 @@ Look at files `single_port.py` and `parallel_ports.py` for use case examples.
 
 ## Handlers
 
-![schm1](M:\code\Serial\doc\schm1.png)
+![schm1](.\doc\schm1.png)
 
 * All handlers write the received data to a  file - `self.File.`  The file is by default set to a temporary file.
 * The handlers return an ` UpdateStatus.` 
