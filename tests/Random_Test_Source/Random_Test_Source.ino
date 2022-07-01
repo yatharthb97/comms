@@ -1,11 +1,10 @@
 #include <Entropy.h>
-const int sizex = 5;
-const double delay_us = 100000;
+const int sizex = 171;
+const double delay_us = 1000;
 const int Range_lower = 0;
-const int Range_higher = 100;
+const int Range_higher = 10;
 unsigned int array[sizex];
 double one = 1.0;
-unsigned int serial_buffer[256];
 void setup() 
 {
   Entropy.Initialize();
@@ -25,14 +24,8 @@ void loop()
         array[i] = Entropy.random(Range_lower, Range_higher);
       }
       
-      //-- Send → Serial Out
-      for (int i = 0; i < sizex-1; i++) 
-      {
-        Serial.print(array[i]);
-        Serial.print(",");
-      }
-      Serial.println(array[sizex-1]);
-      Serial.flush();
+      Serial.write((uint8_t*)&(array), sizeof(unsigned int)*sizex);
+
       //----
       
       digitalWrite(LED_BUILTIN, LOW);

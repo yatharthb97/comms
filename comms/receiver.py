@@ -11,8 +11,9 @@ import os
 import tempfile
 import numpy as np
 
-from enums import UpdateStatus, Tag
+from enums import Update, Tag
 from Counter import udcounter
+import handlers
 
 from pyqtgraph.Qt import QtGui, QtCore
 import pyqtgraph as pg
@@ -54,7 +55,7 @@ class Receiver:
 		self.Add_after_trim = '\n'
 
 		self.Port = Serial()
-		self.tag = Tag.none
+		self.tag = Tag.event_cntr
 
 		#Setup Event Counter
 		self.EventCounter = udcounter.UD_Counter()
@@ -63,23 +64,26 @@ class Receiver:
 		self.EventCounter.verbose = True
 
 		
-		self.ReceiveCalls = 0 #Number of Attempted Reads
-		self.DecodeErrors = 0 #Number of Decoding Errors
+		self.ReceiveCalls = 0 # Number of Attempted Reads
+		self.DecodeErrors = 0 # Number of Decoding Errors
 		
-		self.EventsList = [] #List of events read by the Receiver object per acquisition cycle
-		self.DecodeFailureList = [] #List of dumps of all decode failures
+		self.EventsList = [] # List of events read by the Receiver object per acquisition cycle
+		self.DecodeFailureList = [] # List of dumps of all decode failures
 
 	
 		# Graphing Resource Setup 
 		self.MaxGraphSize = 20
 		self.Axis = 0
-		self.UpdateStatus = UpdateStatus.NoUpdate
-		self.Graph_active = False
+
+		#self.graph = Graph(self.Name)
+		self.update_status = Update.NoUpdate
+		self.graph_running = False
 
 		#Data Fields
-		self.Data = deque([0]*self.MaxGraphSize, maxlen = self.MaxGraphSize)
-		self.AuxData = deque(range(self.MaxGraphSize), maxlen = self.MaxGraphSize)
+		self.data = deque([0]*self.MaxGraphSize, maxlen = self.MaxGraphSize)
+		self.aux_data = deque(range(self.MaxGraphSize), maxlen = self.MaxGraphSize)
 		self.fixed_aux_data = []
+		#Fixed Aux Data that can be used
 
 		# self.Help = f''' 
 		# 	> Resource List: 
@@ -104,6 +108,9 @@ class Receiver:
 		self.InitTime = time.time_ns() #Start Clock
 
 	def restart_clock():
+		'''
+		Resets the Receiver local start time to the time of this function call.
+		'''
 		self.InitTime = time.time_ns()
 
 	def open(self):
@@ -125,7 +132,9 @@ class Receiver:
 
 
 	def is_open(self):
-		'''Returns True if the specified receiver is open to receive. '''
+		'''
+		Returns True if the specified receiver is open to receive. 
+		'''
 		return self.Port.is_open
 
 
@@ -140,7 +149,9 @@ class Receiver:
 
 
 	def to_file(self, filename):
-		''' Sets the file path for saving data. Upon failure, the file is set to TempFile.'''
+		''' 
+		Sets the file path for saving data. Upon failure, the file is set to TempFile.
+		'''
 
 		if os.path.exists(filename):
 			print(f" •ERROR R{self.ID} > The file ** {filename} ** already exists. Ignoring this call.")
@@ -155,7 +166,12 @@ class Receiver:
 				print(f"•ERROR R{self.ID} > Invalid filepath!  Writing to Temp-File → ** {self.File.name} **")
 
 
-	def set_event_tag(self, mode = "event_cntr", xtics = []):
+	def set_event_tag(self, mode = "event_cntr", xtics = None):
+		'''
+		Sets how a new event i.e. a 'Successful Read' is tagged/labelled. 
+
+		If allowed by the Handler function → All the numeric values received during a single line read are split and then are individually labelled by repeated calls to the specific tag generator.
+		'''
 		if mode == "time":
 			self.tag = Tag.time
 		elif mode == "event_cntr":
@@ -164,7 +180,7 @@ class Receiver:
 			self.tag = Tag.range 
 		elif mode ==  "custom":
 			self.tag = Tag.custom
-			if not xtics == []:
+			if xtics != None:
 				self.fixed_aux_data = xtics
 				self.MaxGraphSize = len(xtics)
 			else:
@@ -172,12 +188,13 @@ class Receiver:
 		elif mode == "none":
 			self.tag = Tag.none
 		else:
-			return
-			#raise Exception("Invalid `mode` passed to set_event_tag(mode, xtics).")
+			raise Exception("Invalid `mode` passed to set_event_tag(mode, xtics).")
 
 
 	def NewEventTag(self):
-		'''  Generates new Event Tag instance. '''
+		'''  
+		Generates and returns an Event Tag generator function based on the set `tag` attribute. 
+		'''
 		if self.tag == Tag.time :
 			def time_tag():
 				time_now = time.time_ns() - self.InitTime
@@ -211,7 +228,9 @@ class Receiver:
 
 
 	def status(self, filename = None):
-		'''Prints a preety summary of the port and writes the same to a file if a valid filename is passed.'''
+		'''
+		Prints a preety summary of the port and writes the same to a file if a valid filename is passed.
+		'''
 
 		ID = self.ID
 		error_view_size =  5 * (self.DecodeErrors >= 5) + (self.DecodeErrors)*(self.DecodeErrors < 5)
@@ -240,5 +259,30 @@ class Receiver:
 				return
 		
 
+	def register_update(update_status):
+		''' 
+		This function pipes the Update Signal from a Handler and updates the graph state if it is running.
+		'''
+
+		self.update_status = update_status
+		
+		if self.update_status == Update.Graph and self.graph_running:
+			self.graph.push_datum(self.data, self.aux_data)
 
 
+	@staticmethod
+	def NewHandler(handlr_str):
+		if handlr_str == "receive_optm":
+			return handlers.receive_optm	
+		elif handlr_str == "receive_bin":
+			return handlers.receive_bin		
+		elif handlr_str == "receive_with_time_print":
+			return handler.receive_with_time_print
+		elif handlr_str == "receive_with_time_optm":
+			return handlers.receive_with_time_optm
+		elif handlr_str == "receive_and_append":
+			return handlers.receive_and_append
+		elif handlr_str == "receive_vector":
+			return handler.receive_vector
+		else:
+			raise Exception(f"Invalid handler type - {handlr_str}")

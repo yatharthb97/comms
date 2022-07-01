@@ -6,6 +6,7 @@ class UD_Counter:
 	
 	def __init__(self):
 		self.value = 0
+		self.reset_val
 		self.max = 0
 		self.mode = "null"
 		self.updater = lambda x : x #Blank Lambda
@@ -39,12 +40,43 @@ class UD_Counter:
 		return self.value
 
 	def isr_overflow(self, value: int, isr):
-		self.mode = "overflow_trigger" #Bookeeping
-		pass
+		if(self.mode != "up" or self.mode != "up"):
+			raise Exception ("Please set direction of the counter - 'up' or 'down'. ")
+		
+		self.mode = "overflow_trigger"
+
+		self.overflow = value
+		self.isr = isr
+		old_updater = self.updater
+				
+		def overflow_updater(x):
+			x = old_updater(x)
+			if (x == self.overflow):
+				self.isr()
+				x = 0
+			return x
+				
+		self.updater = overflow_updater
 
 	def isr_compare(self, value: int, isr):
-		self.mode = "compare_trigger" #Bookeeping
-		pass
+		
+		if(self.mode != "up" or self.mode != "up"):
+			raise Exception ("Please set direction of the counter - 'up' or 'down'. ")
+		
+		self.mode = "compare_trigger"
+		
+		self.compare_val = 0
+		self.isr = isr
+		old_updater = self.updater
+		
+		def compare_updater(x):
+			x = old_updater(x)
+			if (x == self.compare_val):
+				self.isr()
+			return x
+				
+		self.updater = overflow_updater
+
 
 	def multi_compare(self, value: int, isr):
 		self.mode = "multi-event_trigger"
