@@ -53,7 +53,7 @@ class RTDevice:
 		self.counter.verbose = True
 
 		self.attempted_reads = 0 # Number of Attempted Reads
-		self.events = [] 				 # List of events read by the Receiver object per acquisition cycle
+		self.events = [] 	     # List of events read by the Receiver object per acquisition cycle
 		self.decodefailures = [] # List of dumps of all decode failures
 
 

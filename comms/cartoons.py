@@ -35,3 +35,7 @@ f"""    o       o
   └────────────┘"""
 
 	return illu
+
+if __name__ == "__main__":
+	print(radio())
+	print(radio(code=123, status=False, rt=[1, 1]))
